@@ -13,6 +13,8 @@ A new user should follow [docs/users-guide.md](docs/users-guide.md).
 
 The short-clip gate is described in [src/short_clip_gate/README.md](src/short_clip_gate/README.md).
 
+The single-request classifier is described in [src/jev/README.md](src/jev/README.md).
+
 ## What happens to one phrase
 
 1. The microphone is read at 16 kHz. The first 0.5 seconds measure the room. The terminal prints that level as `Ready. Room level ...`.
