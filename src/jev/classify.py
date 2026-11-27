@@ -9,16 +9,13 @@ from typesafe_sdk import (
     RetryPolicy,
     TypeSafeAPIConnectionError,
     TypeSafeAPIError,
-    TypeSafeAPIResponseValidationError,
     TypeSafeAuthenticationError,
-    TypeSafeBadRequestError,
     TypeSafeClient,
     TypeSafeError,
     TypeSafeInternalServerError,
     TypeSafeNotFoundError,
     TypeSafePermissionDeniedError,
     TypeSafeRateLimitError,
-    TypeSafeUnprocessableEntityError,
 )
 
 from .config import Config
@@ -26,15 +23,35 @@ from .config import Config
 TIMEOUT_S = 60.0
 ENV_FILE = Path(__file__).with_name(".env")
 _QUESTION = "single_request"
-_MISSING_KEY = "Missing TypeSafe API key. Set TYPESAFE_API_KEY in src/jev/.env."
-_REJECTED_KEY = "TypeSafe rejected the API key. Check TYPESAFE_API_KEY in src/jev/.env."
+_SYSTEM_ONE = "/v1/systemone"
+_MISSING_KEY = (
+    "Missing TypeSafe API key. Set TYPESAFE_API_KEY in src/jev/.env. "
+    "The next run reads that file again."
+)
+_MISSING_URL = (
+    "Missing TypeSafe API URL. Set JEV_API_URL in src/jev/.env. "
+    "The next run reads that file again."
+)
+_BAD_URL = (
+    "JEV_API_URL in src/jev/.env must be the systemone address, "
+    "ending in /v1/systemone."
+)
+_REJECTED_KEY = (
+    "TypeSafe rejected the API key. Check TYPESAFE_API_KEY in src/jev/.env. "
+    "The next run reads that file again."
+)
+_SDK_KEY = "API key must contain only printable ASCII characters without whitespace."
 _EMPTY = "Enter the text to classify."
-_NETWORK = "Could not reach TypeSafe. Check the network, then run the command again."
+_NO_FUNDS = (
+    "TypeSafe refused the request because the account has no quota or no funds. "
+    "Fix billing, then run the command again."
+)
 _RATE_LIMIT = "TypeSafe rate limit reached. Wait a moment, then run the command again."
+_NETWORK = "Could not reach TypeSafe. Check the network, then run the command again."
 _FORBIDDEN = "This API key is not allowed to call the model."
 _SERVER = "TypeSafe had a server error. Run the command again."
-_REJECTED_REQUEST = "TypeSafe rejected the request. Check the question in src/jev/config.py."
-_UNREADABLE = "TypeSafe returned an answer that could not be read. Run the command again."
+_OVERLOADED = "TypeSafe is overloaded. Wait a moment, then run the command again."
+_QUOTA_CODES = frozenset({"insufficient_quota", "billing_hard_limit_reached"})
 
 
 @dataclass(frozen=True)
@@ -52,12 +69,17 @@ def classify(entry: str, config: Config | None = None) -> Decision:
     if not text:
         raise RuntimeError(_EMPTY)
     settings = Config() if config is None else config
-    api_key = _load_env(ENV_FILE).get("TYPESAFE_API_KEY", "").strip()
+    env = _load_env(ENV_FILE)
+    api_key = env.get("TYPESAFE_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError(_MISSING_KEY)
+    api_url = env.get("JEV_API_URL", "").strip()
+    if not api_url:
+        raise RuntimeError(_MISSING_URL)
     try:
         with TypeSafeClient(
             api_key=api_key,
+            base_url=_api_root(api_url),
             model=settings.model,
             retry=RetryPolicy(max_retries=0),
             timeout=TIMEOUT_S,
@@ -75,8 +97,22 @@ def classify(entry: str, config: Config | None = None) -> Decision:
                 },
             )
     except TypeSafeError as exc:
-        raise RuntimeError(_guide(exc, settings.model)) from exc
+        sentence = _guide(exc, settings.model)
+        if sentence is None:
+            raise
+        raise RuntimeError(sentence) from exc
     return _decision(float(response.nouls[_QUESTION].noul), settings.yes_at)
+
+
+def _api_root(url: str) -> str:
+    """Host in front of /v1/systemone. The SDK appends that path itself."""
+    text = url.strip().rstrip("/")
+    if not text.endswith(_SYSTEM_ONE):
+        raise RuntimeError(_BAD_URL)
+    root = text[: -len(_SYSTEM_ONE)]
+    if not root:
+        raise RuntimeError(_BAD_URL)
+    return root
 
 
 def _decision(noul: float, yes_at: float) -> Decision:
@@ -85,8 +121,8 @@ def _decision(noul: float, yes_at: float) -> Decision:
     return Decision(answer=answer, noul=noul, confidence=confidence)
 
 
-def _guide(exc: TypeSafeError, model: str) -> str:
-    """One instruction for a known API failure."""
+def _guide(exc: TypeSafeError, model: str) -> str | None:
+    """One instruction for a known API failure. None leaves the error unchanged."""
     if isinstance(exc, TypeSafeAPIConnectionError):
         return _NETWORK
     if isinstance(exc, TypeSafeAuthenticationError):
@@ -99,16 +135,33 @@ def _guide(exc: TypeSafeError, model: str) -> str:
             f"The model name is {model} in src/jev/config.py."
         )
     if isinstance(exc, TypeSafeRateLimitError):
-        return _RATE_LIMIT
+        return _NO_FUNDS if _no_funds(exc) else _RATE_LIMIT
     if isinstance(exc, TypeSafeInternalServerError):
+        if exc.status == 529:
+            return _OVERLOADED
         return _SERVER
-    if isinstance(exc, (TypeSafeBadRequestError, TypeSafeUnprocessableEntityError)):
-        return _REJECTED_REQUEST
-    if isinstance(exc, TypeSafeAPIResponseValidationError):
-        return _UNREADABLE
     if isinstance(exc, TypeSafeAPIError):
+        if exc.status == 529:
+            return _OVERLOADED
+        if _no_funds(exc):
+            return _NO_FUNDS
         return f"TypeSafe request failed ({exc.status})."
-    return _REJECTED_KEY
+    if str(exc) == _SDK_KEY:
+        return _REJECTED_KEY
+    return None
+
+
+def _no_funds(exc: TypeSafeAPIError) -> bool:
+    found = {getattr(exc, "code", None), getattr(exc, "type", None)}
+    body = exc.body
+    if isinstance(body, dict):
+        found.add(body.get("code"))
+        found.add(body.get("type"))
+        nested = body.get("error")
+        if isinstance(nested, dict):
+            found.add(nested.get("code"))
+            found.add(nested.get("type"))
+    return any(value in _QUOTA_CODES for value in found)
 
 
 def _load_env(path: Path) -> dict[str, str]:
