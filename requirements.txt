@@ -1,0 +1,3 @@
+numpy==2.5.5
+openai==3.60.0
+sounddevice==0.5.6
