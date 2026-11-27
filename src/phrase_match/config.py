@@ -12,4 +12,4 @@ class Config:
     """
 
     enabled: bool = True
-    phrases: tuple[str, ...] = ("okay go", "Pamela off,")
+    phrases: tuple[str, ...] = ("okay go", "Pamela off,", "OK Go,", "OK Vai", "okay vai",)

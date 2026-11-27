@@ -7,9 +7,11 @@ flowchart LR
 
 This program listens on the default microphone, waits until a phrase ends, sends that audio to OpenAI, and prints the transcript. If the transcript contains a phrase you listed, it prints that phrase too.
 
-Nothing is written to disk. The audio stays in memory. Ctrl+C stops the program and does not send a phrase that has not finished.
+The audio stays in memory. Ctrl+C stops the program and does not send a phrase that has not finished.
 
 A new user should follow [docs/users-guide.md](docs/users-guide.md).
+
+The short-clip gate is described in [src/short_clip_gate/README.md](src/short_clip_gate/README.md).
 
 ## What happens to one phrase
 
@@ -99,4 +101,4 @@ Matching ignores case, accents, and punctuation. The words must appear next to e
 
 ## Transcription settings
 
-[`src/transcribe/.env`](src/transcribe/.env) holds `OPENAI_API_KEY` and `OPENAI_TRANSCRIBE_LANGUAGE`. Leave the language empty to auto-detect. A set value is sent as the language hint. The model name is `gpt-transcribe` in [`src/transcribe/transcribe.py`](src/transcribe/transcribe.py).
+[`src/transcribe/.env`](src/transcribe/.env) holds `OPENAI_API_KEY`. The language hint is `language` in [`src/transcribe/config.py`](src/transcribe/config.py). It is `en`. Leave it as `""` to auto-detect. A set value is sent as the language hint. The model name is `gpt-transcribe` in [`src/transcribe/transcribe.py`](src/transcribe/transcribe.py).

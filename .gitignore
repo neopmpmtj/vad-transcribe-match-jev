@@ -3,3 +3,4 @@ __pycache__/
 .venv/
 recordings/
 .env
+src/short_clip_gate/short_clip_gate.sqlite

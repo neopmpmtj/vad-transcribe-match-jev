@@ -22,10 +22,9 @@ Open `src/transcribe/.env` and set the key:
 
 ```
 OPENAI_API_KEY=sk-...
-OPENAI_TRANSCRIBE_LANGUAGE=
 ```
 
-Leave `OPENAI_TRANSCRIBE_LANGUAGE` empty to let the model choose the language. To force one, set a code:
+The language hint is `language` in `src/transcribe/config.py`. It is `en`. Leave it as `""` to let the model choose the language. To force one, set a code:
 
 | Code | Language |
 | --- | --- |
@@ -100,10 +99,16 @@ Set `enabled = False` to stop phrase printing. The transcript is still printed.
 
 ## When something fails
 
-- `Missing OPENAI_API_KEY in src/transcribe/.env` means the key line is empty or the file is missing.
+Each of these is printed on its own, and the listener waits for the next phrase.
+
+- `Missing OpenAI API key. Set OPENAI_API_KEY in src/transcribe/.env. The next phrase reads that file again.` The key line is empty or the file is missing. Save the file. The next phrase reads it again.
+- `OpenAI rejected the API key. Check OPENAI_API_KEY in src/transcribe/.env. The next phrase reads that file again.` A key is present and OpenAI refused it. Replace the value. The next phrase reads the file again.
+- `OpenAI refused the request because the account has no quota or no funds. Fix billing, then speak again.`
+- `Could not reach OpenAI. Check the network, then speak again.` The connection failed, or OpenAI did not answer within a minute.
+- A rate limit, a server error, a key that cannot use the model, or another OpenAI status prints one short sentence of the same kind. The listener then waits for the next phrase.
 - A phrase you can see in the transcript is not printed underneath. Check the trailing comma, and check that the words are next to each other in the transcript.
 - `Room level` stays near `0.0001` or `0.0002`. The operating-system input volume is low. Raise the default microphone volume before changing listener settings. On this machine the built-in digital microphone has been seen at about one third volume.
-- The listener seems to freeze after `silence`. It is waiting for OpenAI. The next `voice started` comes after the transcript line.
+- After `silence`, the program is sending the phrase to OpenAI. A wait longer than a minute prints the network sentence above. The next `voice started` comes after the transcript line or that failure sentence.
 
 ## Voice activity and settings
 

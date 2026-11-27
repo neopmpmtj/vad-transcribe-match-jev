@@ -1,5 +1,7 @@
 """Open the microphone and transcribe each phrase after silence."""
 
+import sys
+
 import numpy as np
 
 from phrase_match import found
@@ -44,6 +46,10 @@ def main(settings: Settings) -> None:
     count = 0
     listening_for_voice = True
     silence_s = 0.0
+    after_start_n = 0
+    silence_n = 0
+    gate = _load_gate()
+    tracking = gate is not None and gate.active
     try:
         for block in mic_frames(settings.sample_rate, hop):
             buffer = np.roll(buffer, -hop)
@@ -70,33 +76,79 @@ def main(settings: Settings) -> None:
                     recorder.start()
                     listening_for_voice = False
                     silence_s = 0.0
+                    after_start_n = 0
+                    silence_n = 0
                 continue
+            if tracking:
+                after_start_n += int(block.size)
             if voiced:
                 silence_s = 0.0
+                silence_n = 0
                 continue
             silence_s += settings.hop_s
+            if tracking:
+                silence_n += int(block.size)
             if silence_s < settings.silence_s:
                 continue
             print(f"[{count}] silence")
-            _transcribe(recorder, settings.sample_rate, count)
+            content_s = None
+            if tracking:
+                content_s = (after_start_n - silence_n) / settings.sample_rate
+            _transcribe(recorder, settings.sample_rate, count, content_s, gate)
             listening_for_voice = True
             silence_s = 0.0
+            after_start_n = 0
+            silence_n = 0
             detector.reset()
     except KeyboardInterrupt:
         print("\nStopping...")
 
 
-def _transcribe(recorder: Recorder, sample_rate: int, count: int) -> None:
+def _load_gate():
+    try:
+        from short_clip_gate import load_gate
+
+        return load_gate()
+    except Exception as exc:
+        print(
+            f"WARNING: short-clip gate unavailable ({exc}); transcription unchanged",
+            file=sys.stderr,
+        )
+        return None
+
+
+def _blank(text: str | None) -> bool:
+    return text is None or not str(text).strip()
+
+
+def _transcribe(
+    recorder: Recorder,
+    sample_rate: int,
+    count: int,
+    content_s: float | None,
+    gate,
+) -> None:
     audio = recorder.finish()
     if audio is None:
+        return
+    active = gate is not None and gate.active
+    if active and gate.rejects(content_s):
+        print(f"[{count}] No text detected")
+        gate.note("short", count, content_s, audio, sample_rate)
         return
     try:
         text = transcribe(audio, sample_rate)
     except Exception as exc:
         print(exc)
         return
+    if active and _blank(text):
+        print(f"[{count}] Empty transcript")
+        gate.note("empty", count, content_s, audio, sample_rate)
+        return
     print(f"[{count}] {text}")
     _print_matches(found(text))
+    if active:
+        gate.note("sent", count, content_s, audio, sample_rate)
 
 
 def _print_matches(matches: list[str]) -> None:
